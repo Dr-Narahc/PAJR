@@ -1,0 +1,5 @@
+{
+  "name": "PAJR",
+  "description": "A safety-critical healthcare communication bridge connecting patient WhatsApp flows with clinician dashboards using explainable AI for triage and risk stratification.",
+  "requestFramePermissions": []
+}
