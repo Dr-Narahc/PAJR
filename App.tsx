@@ -123,7 +123,9 @@ const App: React.FC = () => {
   });
 
   return () => {
-    sub?.unsubscribe?.();
+  sub?.unsubscribe?.();
+};
+
   };
 }, [activePatientId]);
 
