@@ -122,7 +122,7 @@ const App: React.FC = () => {
     );
   });
 
-  return () => {
+ return () => {
   sub?.unsubscribe?.();
 };
 
