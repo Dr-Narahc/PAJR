@@ -98,24 +98,35 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Sync with Supabase (simplified real-time emulation)
-  useEffect(() => {
-    if (activePatientId) {
-      try {
-        const sub = subscribeToMessages(activePatientId, (payload) => {
-          const newMsg = payload.new;
-          setPatients(prev => prev.map(p => {
-            if (p.id === activePatientId && !p.messages.some(m => m.id === newMsg.id)) {
-              return { ...p, messages: [...p.messages, newMsg as Message] };
-            }
-            return p;
-          }));
-        });
-        return () => { sub.unsubscribe(); };
-      } catch (err) {
-        console.warn('Real-time subscription skipped (DB unavailable)');
-      }
-    }
-  }, [activePatientId]);
+ useEffect(() => {
+  if (!activePatientId) return;
+
+  const sub = subscribeToMessages(activePatientId, (payload) => {
+    if (!payload || !payload.new) return;
+
+    const newMsg = payload.new as Message;
+
+    setPatients(prev =>
+      prev.map(p => {
+        if (p.id !== activePatientId) return p;
+
+        const messages = p.messages ?? [];
+
+        if (messages.some(m => m.id === newMsg.id)) return p;
+
+        return {
+          ...p,
+          messages: [...messages, newMsg],
+        };
+      })
+    );
+  });
+
+  return () => {
+    sub?.unsubscribe?.();
+  };
+}, [activePatientId]);
+
 
   const handleLogin = (role: 'PATIENT' | 'DOCTOR', phoneNumber: string) => {
     setCurrentUser({
