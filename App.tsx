@@ -181,7 +181,12 @@ const App: React.FC = () => {
     setIsProcessing(true);
     if (type === 'TEXT') {
         try {
-            const patient = patients.find(p => p.id === targetId)!;
+           const patient = patients.find(p => p.id === targetId);
+if (!patient) {
+  setIsProcessing(false);
+  return;
+}
+
             const context = `Age: ${patient.age}, Vitals: ${patient.vitalsHistory.slice(-2).map(v => `${v.type}: ${v.value}`).join(', ')}`;
             const { insight, vitals, suggestedResponse } = await analyzePatientInput(content, context);
 
