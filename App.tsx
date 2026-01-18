@@ -100,16 +100,20 @@ const App: React.FC = () => {
   // Sync with Supabase (simplified real-time emulation)
   useEffect(() => {
     if (activePatientId) {
-      const sub = subscribeToMessages(activePatientId, (payload) => {
-        const newMsg = payload.new;
-        setPatients(prev => prev.map(p => {
-          if (p.id === activePatientId && !p.messages.some(m => m.id === newMsg.id)) {
-            return { ...p, messages: [...p.messages, newMsg as Message] };
-          }
-          return p;
-        }));
-      });
-      return () => { sub.unsubscribe(); };
+      try {
+        const sub = subscribeToMessages(activePatientId, (payload) => {
+          const newMsg = payload.new;
+          setPatients(prev => prev.map(p => {
+            if (p.id === activePatientId && !p.messages.some(m => m.id === newMsg.id)) {
+              return { ...p, messages: [...p.messages, newMsg as Message] };
+            }
+            return p;
+          }));
+        });
+        return () => { sub.unsubscribe(); };
+      } catch (err) {
+        console.warn('Real-time subscription skipped (DB unavailable)');
+      }
     }
   }, [activePatientId]);
 
@@ -132,15 +136,34 @@ const App: React.FC = () => {
     const targetId = activePatientId || (currentUser?.role === 'PATIENT' ? currentUser.id : null);
     if (!targetId) return;
 
-    const newMessage: Partial<Message> = {
+    const newMessage: Message = {
+      id: Date.now().toString(),
       sender: senderRole,
       content,
       fileName,
+      timestamp: new Date().toISOString(),
       type
     };
 
-    // Save to Supabase
-    await saveMessage(targetId, newMessage);
+    // Update Local State immediately for responsiveness
+    setPatients(prev => prev.map(p => {
+      if (p.id === targetId) {
+        return { ...p, messages: [...p.messages, newMessage], lastInteraction: new Date().toISOString() };
+      }
+      return p;
+    }));
+
+    // Persistence with error handling
+    try {
+      await saveMessage(targetId, {
+        sender: senderRole,
+        content,
+        fileName,
+        type
+      });
+    } catch (err) {
+      console.warn('Persistence failed, using local session state only.');
+    }
 
     if (senderRole === 'DOCTOR') return;
 
@@ -151,22 +174,20 @@ const App: React.FC = () => {
             const context = `Age: ${patient.age}, Vitals: ${patient.vitalsHistory.slice(-2).map(v => `${v.type}: ${v.value}`).join(', ')}`;
             const { insight, vitals, suggestedResponse } = await analyzePatientInput(content, context);
 
-            // Save AI Response & Extracted Vitals
-            await saveMessage(targetId, {
-              sender: 'SYSTEM',
-              content: suggestedResponse,
-              type: 'TEXT'
-            });
+            const systemMsg: Message = {
+                id: (Date.now() + 1).toString(),
+                sender: 'SYSTEM',
+                content: suggestedResponse,
+                timestamp: new Date().toISOString(),
+                type: 'TEXT'
+            };
 
-            if (vitals.length > 0) {
-              await saveVitals(targetId, vitals);
-            }
-
-            // Update Local State for immediate feedback (Supabase real-time will handle sync too)
+            // Local state for AI
             setPatients(prev => prev.map(p => {
                 if (p.id === targetId) {
                     return {
                         ...p,
+                        messages: [...p.messages, systemMsg],
                         riskStatus: insight.riskLevel,
                         latestInsight: insight,
                         vitalsHistory: [...p.vitalsHistory, ...vitals],
@@ -175,6 +196,20 @@ const App: React.FC = () => {
                 }
                 return p;
             }));
+
+            // Async persistence of AI response
+            try {
+              await saveMessage(targetId, {
+                sender: 'SYSTEM',
+                content: suggestedResponse,
+                type: 'TEXT'
+              });
+              if (vitals.length > 0) {
+                await saveVitals(targetId, vitals);
+              }
+            } catch (err) {
+               console.warn('AI insight persistence failed.');
+            }
         } catch (e) {
             console.error(e);
         } finally {
