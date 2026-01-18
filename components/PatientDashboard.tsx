@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef } from 'react';
 import { Patient, VitalSign } from '../types';
 import { Icons } from './Icons';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { PatientSimulator } from './PatientSimulator'; 
 
 interface Props {
@@ -12,13 +12,11 @@ interface Props {
 }
 
 export const PatientDashboard: React.FC<Props> = ({ patient, onLogout, onSendMessage, isProcessing }) => {
-  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'CHAT' | 'RECORDS'>('DASHBOARD');
-  const [chartMode, setChartMode] = useState<'GLUCOSE' | 'BP' | 'HR' | 'TEMP'>('GLUCOSE');
+  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'CHAT' | 'RECORDS' | 'FOOD'>('DASHBOARD');
+  const [chartMode, setChartMode] = useState<'GLUCOSE' | 'BP' | 'HR' | 'TEMP' | 'URINE'>('GLUCOSE');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper to get latest vital
   const getVital = (type: VitalSign['type']) => {
     const sorted = [...patient.vitalsHistory]
       .filter(v => v.type === type)
@@ -26,446 +24,249 @@ export const PatientDashboard: React.FC<Props> = ({ patient, onLogout, onSendMes
     return sorted[0] || null;
   };
 
-  const bpSys = getVital('BP_SYSTOLIC');
-  const bpDia = getVital('BP_DIASTOLIC');
-  const heartRate = getVital('HEART_RATE');
-  const temp = getVital('TEMP');
-  const urine = getVital('URINE_OUTPUT');
-
-  // Prepare chart data dynamically based on selection
   const chartData = useMemo(() => {
-    if (!patient) return [];
-    
-    // Sort chronologically
-    const sortedHistory = [...patient.vitalsHistory].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    if (chartMode === 'GLUCOSE') {
-        return sortedHistory.filter(v => v.type === 'GLUCOSE').map(g => ({
-            time: new Date(g.timestamp).toLocaleDateString([], { weekday: 'short' }),
-            value: g.value
-        })).slice(-7);
-    } else if (chartMode === 'HR') {
-        return sortedHistory.filter(v => v.type === 'HEART_RATE').map(g => ({
-            time: new Date(g.timestamp).toLocaleDateString([], { weekday: 'short' }),
-            value: g.value
-        })).slice(-7);
-    } else if (chartMode === 'TEMP') {
-        return sortedHistory.filter(v => v.type === 'TEMP').map(g => ({
-            time: new Date(g.timestamp).toLocaleDateString([], { weekday: 'short' }),
-            value: g.value
-        })).slice(-7);
-    } else if (chartMode === 'BP') {
-        // Need to pair Sys/Dia
-        const sys = sortedHistory.filter(v => v.type === 'BP_SYSTOLIC');
-        const dia = sortedHistory.filter(v => v.type === 'BP_DIASTOLIC');
-        // Simple mapping based on index for this mock
+    const sorted = [...patient.vitalsHistory].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    if (chartMode === 'BP') {
+        const sys = sorted.filter(v => v.type === 'BP_SYSTOLIC');
+        const dia = sorted.filter(v => v.type === 'BP_DIASTOLIC');
         return sys.map((s, i) => ({
              time: new Date(s.timestamp).toLocaleDateString([], { weekday: 'short' }),
              sys: s.value,
              dia: dia[i]?.value || null
         })).slice(-7);
     }
-    return [];
+    const typeKeyMap: Record<string, VitalSign['type']> = {
+      'GLUCOSE': 'GLUCOSE',
+      'HR': 'HEART_RATE',
+      'TEMP': 'TEMP',
+      'URINE': 'URINE_OUTPUT'
+    };
+    return sorted.filter(v => v.type === typeKeyMap[chartMode]).map(g => ({
+        time: new Date(g.timestamp).toLocaleDateString([], { weekday: 'short' }),
+        value: g.value
+    })).slice(-7);
   }, [patient, chartMode]);
-
-  // Mock Data for Bar Charts (Wearables)
-  const stepsData = [
-    { day: 'Mon', steps: 4500 },
-    { day: 'Tue', steps: 6200 },
-    { day: 'Wed', steps: 5100 },
-    { day: 'Thu', steps: 7800 },
-    { day: 'Fri', steps: 4200 },
-    { day: 'Sat', steps: 8100 },
-    { day: 'Sun', steps: patient.wearableData?.steps || 5500 },
-  ];
-
-  const sleepData = [
-    { day: 'Mon', hours: 6.2 },
-    { day: 'Tue', hours: 7.1 },
-    { day: 'Wed', hours: 6.5 },
-    { day: 'Thu', hours: 5.8 },
-    { day: 'Fri', hours: 7.5 },
-    { day: 'Sat', hours: 8.0 },
-    { day: 'Sun', hours: patient.wearableData?.sleepHours || 7.0 },
-  ];
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Create a fake local URL for the demo
-      const imageUrl = URL.createObjectURL(file);
-      onSendMessage(imageUrl, 'IMAGE');
-      setIsMenuOpen(false);
-      setActiveTab('CHAT'); 
-    }
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Use proper DOCUMENT type
-      // For demo, we fake a URL for the file
-      onSendMessage('https://example.com/file.pdf', 'DOCUMENT', file.name);
-      setIsMenuOpen(false);
-      setActiveTab('RECORDS'); // Go to records view to see it
+      const url = URL.createObjectURL(file);
+      onSendMessage(url, 'IMAGE');
+      setActiveTab('CHAT');
     }
   };
 
-  // Prepare Clinical Records Data
-  const clinicalRecords = useMemo(() => {
-      // Combine messages, files, and images into a single timeline
-      return patient.messages.slice().reverse(); // Newest first
-  }, [patient.messages]);
-
   return (
-    <div className="flex flex-col h-screen bg-gray-50 relative">
-      {/* Mobile-first Header */}
-      <header className="bg-white shadow-sm px-4 py-3 flex justify-between items-center z-20 sticky top-0">
+    <div className="flex flex-col h-screen bg-slate-50 relative overflow-hidden">
+      {/* PAJR Patient Header */}
+      <header className="bg-white px-6 py-4 flex justify-between items-center z-30 sticky top-0 border-b border-slate-200">
         <div className="flex items-center gap-3">
-           <img 
-             src={`https://picsum.photos/seed/${patient.id}/100/100`} 
-             alt="Profile" 
-             className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover"
-           />
+           <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-200">P</div>
            <div>
-             <h1 className="text-sm font-bold text-gray-900 leading-tight">Hi, {patient.name.split(' ')[0]}</h1>
-             <p className="text-[10px] text-gray-500">PAJR ID: {patient.id}</p>
+             <h1 className="text-sm font-black text-slate-900 leading-none">PAJR Patient</h1>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Role: Follow-up Portal</p>
            </div>
         </div>
-        
-        <div className="relative">
-          <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 bg-gray-100 rounded-full text-gray-600 hover:bg-gray-200 focus:outline-none">
-            <Icons.Menu size={20} />
-          </button>
-
-          {isMenuOpen && (
-             <>
-               <div className="fixed inset-0 z-10" onClick={() => setIsMenuOpen(false)}></div>
-               <div className="absolute right-0 top-12 w-64 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-20 animate-in fade-in slide-in-from-top-2 overflow-hidden">
-                  <div className="px-4 py-2 border-b border-gray-50 bg-gray-50/50">
-                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Patient Menu</p>
-                  </div>
-                  
-                  <button onClick={() => { setActiveTab('RECORDS'); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
-                     <Icons.File size={18} className="text-blue-500"/> 
-                     <span>Clinical Records</span>
-                  </button>
-                  
-                  <button onClick={() => { fileInputRef.current?.click(); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
-                     <Icons.Image size={18} className="text-purple-500"/> 
-                     <span>Upload Image</span>
-                  </button>
-                  
-                  <button onClick={() => { docInputRef.current?.click(); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
-                     <Icons.Paperclip size={18} className="text-orange-500"/> 
-                     <span>Upload File</span>
-                  </button>
-                  
-                  <button onClick={() => { alert('EMERGENCY CONTACTS:\n\nDr. Verma: +91 98765 43210\nAmbulance: 108\nCare Coordinator: +91 99887 76655'); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-red-50 flex items-center gap-3 transition-colors">
-                     <Icons.Phone size={18} className="text-red-500"/> 
-                     <span>Emergency Contact</span>
-                  </button>
-
-                  <div className="border-t border-gray-100 mt-1 pt-1">
-                      <button onClick={onLogout} className="w-full text-left px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-3 transition-colors">
-                         <Icons.LogOut size={18} /> 
-                         <span>Logout</span>
-                      </button>
-                  </div>
-               </div>
-             </>
-          )}
-        </div>
+        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-colors">
+          <Icons.Menu size={20} />
+        </button>
       </header>
 
-      {/* Hidden File Inputs */}
-      <input 
-         type="file" 
-         ref={fileInputRef} 
-         className="hidden" 
-         accept="image/*"
-         onChange={handleImageUpload}
-       />
-      <input 
-         type="file" 
-         ref={docInputRef} 
-         className="hidden" 
-         accept=".pdf,.doc,.docx,.txt"
-         onChange={handleFileUpload}
-       />
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 bg-white">
-        <button 
-          onClick={() => setActiveTab('DASHBOARD')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 ${activeTab === 'DASHBOARD' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
-        >
-          <Icons.Activity size={16} /> My Health
-        </button>
-        <button 
-          onClick={() => setActiveTab('CHAT')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 ${activeTab === 'CHAT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
-        >
-          <Icons.Chat size={16} /> Care Chat
-        </button>
-        <button 
-          onClick={() => setActiveTab('RECORDS')}
-          className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 ${activeTab === 'RECORDS' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
-        >
-          <Icons.File size={16} /> Records
-        </button>
+      {/* Primary Mobile Navigation */}
+      <div className="flex bg-white px-2 py-1 gap-1 border-b border-slate-200 shrink-0">
+        {[
+          { id: 'DASHBOARD', label: 'Vitals', icon: Icons.Activity },
+          { id: 'CHAT', label: 'Care Chat', icon: Icons.Chat },
+          { id: 'FOOD', label: 'Nutrition', icon: Icons.Utensils },
+          { id: 'RECORDS', label: 'History', icon: Icons.File },
+        ].map(tab => (
+          <button 
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex-1 py-3 px-1 text-[10px] font-black rounded-xl flex flex-col items-center justify-center gap-1.5 transition-all uppercase tracking-widest ${
+              activeTab === tab.id ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400 hover:bg-slate-50'
+            }`}
+          >
+            <tab.icon size={18} />
+            <span>{tab.label}</span>
+          </button>
+        ))}
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {activeTab === 'DASHBOARD' ? (
-          <div className="p-4 space-y-6 max-w-lg mx-auto pb-20">
-            {/* Quick Vitals Grid */}
-            <section className="grid grid-cols-2 gap-3">
-               <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-2 text-gray-500 mb-1">
-                    <Icons.Activity size={16} className="text-red-500" />
-                    <span className="text-xs font-medium">Blood Pressure</span>
-                  </div>
-                  <div>
-                    <span className="text-xl font-bold text-gray-900">{bpSys?.value || '--'}/{bpDia?.value || '--'}</span>
-                    <span className="text-[10px] text-gray-400 ml-1">{bpSys?.unit || 'mmHg'}</span>
-                  </div>
-               </div>
-
-               <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-2 text-gray-500 mb-1">
-                    <Icons.Heart size={16} className="text-rose-500" />
-                    <span className="text-xs font-medium">Heart Rate</span>
-                  </div>
-                  <div>
-                    <span className="text-xl font-bold text-gray-900">{heartRate?.value || '--'}</span>
-                    <span className="text-[10px] text-gray-400 ml-1">BPM</span>
-                  </div>
-               </div>
-
-               <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-2 text-gray-500 mb-1">
-                    <Icons.Thermometer size={16} className="text-orange-500" />
-                    <span className="text-xs font-medium">Temperature</span>
-                  </div>
-                  <div>
-                    <span className="text-xl font-bold text-gray-900">{temp?.value || '--'}</span>
-                    <span className="text-[10px] text-gray-400 ml-1">°F</span>
-                  </div>
-               </div>
-
-               <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-2 text-gray-500 mb-1">
-                    <Icons.Droplet size={16} className="text-blue-500" />
-                    <span className="text-xs font-medium">Urine (24h)</span>
-                  </div>
-                  <div>
-                    <span className="text-xl font-bold text-gray-900">{urine?.value || '--'}</span>
-                    <span className="text-[10px] text-gray-400 ml-1">ml</span>
-                  </div>
-               </div>
-            </section>
-
-            {/* Vitals Charts with Tabs */}
-            <section className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-gray-800 text-sm">Vital Trends</h3>
-                    <div className="flex bg-gray-100 rounded-lg p-0.5">
-                        <button onClick={() => setChartMode('GLUCOSE')} className={`px-2 py-1 text-[10px] rounded-md transition-all ${chartMode === 'GLUCOSE' ? 'bg-white shadow-sm font-semibold' : 'text-gray-500'}`}>Glu</button>
-                        <button onClick={() => setChartMode('BP')} className={`px-2 py-1 text-[10px] rounded-md transition-all ${chartMode === 'BP' ? 'bg-white shadow-sm font-semibold' : 'text-gray-500'}`}>BP</button>
-                        <button onClick={() => setChartMode('HR')} className={`px-2 py-1 text-[10px] rounded-md transition-all ${chartMode === 'HR' ? 'bg-white shadow-sm font-semibold' : 'text-gray-500'}`}>HR</button>
-                        <button onClick={() => setChartMode('TEMP')} className={`px-2 py-1 text-[10px] rounded-md transition-all ${chartMode === 'TEMP' ? 'bg-white shadow-sm font-semibold' : 'text-gray-500'}`}>Temp</button>
+          <div className="p-6 space-y-6 max-w-lg mx-auto pb-24">
+            
+            {/* Quick Summary Grid */}
+            <div className="grid grid-cols-2 gap-4">
+               {[
+                 { label: 'Sugar', val: getVital('GLUCOSE')?.value || '--', unit: 'mg/dL', color: 'emerald', icon: Icons.Droplet },
+                 { label: 'BP', val: getVital('BP_SYSTOLIC') ? `${getVital('BP_SYSTOLIC')?.value}/${getVital('BP_DIASTOLIC')?.value}` : '--', unit: 'mmHg', color: 'rose', icon: Icons.Activity },
+                 { label: 'Pulse', val: getVital('HEART_RATE')?.value || '--', unit: 'bpm', color: 'pink', icon: Icons.Heart },
+                 { label: 'Temp', val: getVital('TEMP')?.value || '--', unit: '°F', color: 'orange', icon: Icons.Thermometer },
+                 { label: 'Urine', val: getVital('URINE_OUTPUT')?.value || '--', unit: 'ml/day', color: 'amber', icon: Icons.Droplet },
+               ].map((v, i) => (
+                  <div key={i} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+                    <div className={`p-2 w-fit rounded-xl bg-${v.color}-50 text-${v.color}-600 mb-4`}><v.icon size={20} /></div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{v.label}</p>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-2xl font-black text-slate-900 tracking-tighter">{v.val}</span>
+                      <span className="text-[10px] font-bold text-slate-400">{v.unit}</span>
                     </div>
+                  </div>
+               ))}
+            </div>
+
+            {/* Vital Trend Analysis */}
+            <section className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-100">
+                <div className="flex justify-between items-center mb-8">
+                    <h3 className="font-black text-slate-900 text-[11px] uppercase tracking-widest">Biometric Trends</h3>
+                    <select 
+                      value={chartMode} 
+                      onChange={(e) => setChartMode(e.target.value as any)}
+                      className="text-[10px] font-black bg-slate-50 border-none rounded-lg py-1 px-3 text-slate-600 focus:ring-0"
+                    >
+                      <option value="GLUCOSE">Glucose</option>
+                      <option value="BP">BP</option>
+                      <option value="HR">Pulse</option>
+                      <option value="TEMP">Temp</option>
+                      <option value="URINE">Urine</option>
+                    </select>
                 </div>
-                <div className="h-40 w-full">
+                <div className="h-48 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }} />
+                        <XAxis dataKey="time" tick={{fontSize: 9, fill: '#94a3b8', fontWeight: 800}} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px' }} />
                         {chartMode === 'BP' ? (
                              <>
-                                <Line type="monotone" dataKey="sys" stroke="#ef4444" strokeWidth={2} dot={{r: 3}} />
-                                <Line type="monotone" dataKey="dia" stroke="#3b82f6" strokeWidth={2} dot={{r: 3}} />
+                                <Line type="monotone" dataKey="sys" stroke="#f43f5e" strokeWidth={4} dot={false} />
+                                <Line type="monotone" dataKey="dia" stroke="#3b82f6" strokeWidth={4} dot={false} />
                              </>
                         ) : (
-                            <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} dot={{r: 4, fill: 'white', strokeWidth: 2}} />
+                            <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={5} dot={{r: 4, fill: 'white', strokeWidth: 3, stroke: '#10b981'}} />
                         )}
                     </LineChart>
                     </ResponsiveContainer>
                 </div>
             </section>
 
-            {/* Wearable Data - Bar Charts */}
-            <section className="space-y-4">
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                             <Icons.Steps className="text-indigo-500" size={18} />
-                             <h3 className="font-bold text-gray-800 text-sm">Activity (Steps)</h3>
-                        </div>
-                        <span className="text-xs font-bold text-indigo-600">{patient.wearableData?.steps.toLocaleString()} today</span>
-                    </div>
-                    <div className="h-32">
-                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={stepsData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="day" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
-                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', fontSize: '12px' }} cursor={{fill: '#f8fafc'}} />
-                                <Bar dataKey="steps" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+            {/* Wearable Analytics: Steps & Sleep */}
+            <div className="grid grid-cols-1 gap-6">
+               <section className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-100">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Icons.Steps size={20}/></div>
+                    <h3 className="font-black text-slate-900 text-[11px] uppercase tracking-widest">Physical Activity (Steps)</h3>
+                  </div>
+                  <div className="h-40 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={patient.wearableHistory}>
+                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700}} />
+                        <Tooltip cursor={{fill: 'transparent'}} />
+                        <Bar dataKey="steps" radius={[10, 10, 0, 0]}>
+                          {patient.wearableHistory.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.steps > 5000 ? '#6366f1' : '#cbd5e1'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+               </section>
 
-                 <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                             <Icons.Moon className="text-blue-400" size={18} />
-                             <h3 className="font-bold text-gray-800 text-sm">Sleep Quality</h3>
-                        </div>
-                        <span className="text-xs font-bold text-blue-500">{patient.wearableData?.sleepHours} hrs</span>
-                    </div>
-                    <div className="h-32">
-                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={sleepData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="day" tick={{fontSize: 10, fill: '#94a3b8'}} axisLine={false} tickLine={false} />
-                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', fontSize: '12px' }} cursor={{fill: '#f8fafc'}} />
-                                <Bar dataKey="hours" fill="#60a5fa" radius={[4, 4, 0, 0]} barSize={20} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-            </section>
-
-            {/* Food Plate Analysis */}
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                 <Icons.Utensils className="text-orange-500" size={18} />
-                 <h3 className="font-bold text-gray-800 text-sm">Food Plate Analysis</h3>
-              </div>
-              <div className="space-y-3">
-                {patient.foodLogs?.map((log) => (
-                  <div key={log.id} className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex gap-3">
-                    <img src={log.imageUrl} alt="Meal" className="w-16 h-16 rounded-lg object-cover bg-gray-100" />
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <span className="text-xs font-bold text-gray-900">{log.analysis.mealType}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                          log.analysis.flag === 'Balanced' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {log.analysis.flag}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-gray-500 mt-1">{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                      <div className="mt-2 flex gap-2">
-                        <span className="text-[10px] bg-gray-50 px-1.5 rounded text-gray-600">Cal: {log.analysis.caloriesEstimate}</span>
-                        <span className="text-[10px] bg-gray-50 px-1.5 rounded text-gray-600">Carbs: {log.analysis.carbs}</span>
-                      </div>
+               <section className="bg-white rounded-[32px] p-8 shadow-sm border border-slate-100">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-purple-50 text-purple-600 rounded-xl"><Icons.Moon size={20}/></div>
+                    <h3 className="font-black text-slate-900 text-[11px] uppercase tracking-widest">Sleep Cycle (Hours)</h3>
+                  </div>
+                  <div className="h-40 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={patient.wearableHistory}>
+                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700}} />
+                        <Tooltip cursor={{fill: 'transparent'}} />
+                        <Bar dataKey="sleepHours" fill="#a855f7" radius={[10, 10, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+               </section>
+            </div>
+          </div>
+        ) : activeTab === 'FOOD' ? (
+          <div className="p-6 pb-24 max-w-lg mx-auto space-y-6">
+             <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-black text-slate-900 tracking-tighter">Food Plate Analysis</h2>
+                <button onClick={() => fileInputRef.current?.click()} className="p-3 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-100"><Icons.Camera size={20}/></button>
+             </div>
+             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+             
+             {patient.foodLogs.map(log => (
+               <div key={log.id} className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100 space-y-4">
+                  <div className="flex gap-4">
+                    <img src={log.imageUrl} className="w-24 h-24 rounded-2xl object-cover shadow-md" alt="Meal" />
+                    <div className="flex-1 space-y-1">
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{log.analysis.mealType} • {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                       <h4 className="text-lg font-black text-slate-900">{log.analysis.caloriesEstimate} <span className="text-xs font-bold text-slate-400">kcal</span></h4>
+                       <div className={`px-2 py-0.5 w-fit rounded-lg text-[9px] font-black uppercase ${log.analysis.flag === 'Balanced' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{log.analysis.flag}</div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Last Insight */}
-            {patient.latestInsight && (
-               <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icons.Shield size={16} className="text-blue-600"/>
-                    <h3 className="text-xs font-bold text-blue-800">Latest Care Insight</h3>
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
+                     <div className="text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase">Carbs</p>
+                        <p className="text-sm font-black text-slate-700">{log.analysis.carbs}</p>
+                     </div>
+                     <div className="text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase">Protein</p>
+                        <p className="text-sm font-black text-slate-700">{log.analysis.protein}</p>
+                     </div>
                   </div>
-                  <p className="text-xs text-blue-700 leading-relaxed">
-                    {patient.latestInsight.summary}
-                  </p>
                </div>
-            )}
+             ))}
           </div>
         ) : activeTab === 'RECORDS' ? (
-          <div className="max-w-lg mx-auto p-4 pb-20">
-             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <h2 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                        <Icons.File className="text-blue-600" size={18}/>
-                        Clinical Records
-                    </h2>
-                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Timeline</span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                   {clinicalRecords.length === 0 && (
-                       <div className="p-8 text-center text-gray-400 text-sm">No records found.</div>
-                   )}
-                   {clinicalRecords.map(record => (
-                       <div key={record.id} className="p-4 flex gap-4 hover:bg-gray-50 transition-colors">
-                          <div className="flex-shrink-0 mt-1">
-                             {record.type === 'IMAGE' ? (
-                                 <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-600">
-                                     <Icons.Image size={18} />
-                                 </div>
-                             ) : record.type === 'DOCUMENT' ? (
-                                 <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-600">
-                                     <Icons.File size={18} />
-                                 </div>
-                             ) : (
-                                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
-                                     <Icons.Chat size={18} />
-                                 </div>
-                             )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-start">
-                                  <p className="text-xs font-bold text-gray-900">
-                                      {record.type === 'DOCUMENT' ? 'Uploaded Document' : 
-                                       record.type === 'IMAGE' ? 'Clinical Image' : 
-                                       record.sender === 'PATIENT' ? 'Patient Note' : 'Care Team Response'}
-                                  </p>
-                                  <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                                      {new Date(record.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                              </div>
-                              
-                              <div className="mt-1">
-                                  {record.type === 'IMAGE' ? (
-                                      <div className="mt-1">
-                                          <img src={record.content} alt="Clinical Record" className="h-20 w-auto rounded-lg border border-gray-200 shadow-sm" />
-                                      </div>
-                                  ) : record.type === 'DOCUMENT' ? (
-                                      <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border border-gray-200 mt-1">
-                                          <Icons.Paperclip size={14} className="text-gray-400"/>
-                                          <span className="text-xs text-blue-600 font-medium underline truncate">{record.fileName || 'document.pdf'}</span>
-                                      </div>
-                                  ) : (
-                                      <p className="text-xs text-gray-600 line-clamp-2">{record.content}</p>
-                                  )}
-                              </div>
-                          </div>
-                       </div>
-                   ))}
-                </div>
-             </div>
+          <div className="p-6 pb-24 max-w-lg mx-auto space-y-4">
+             <h2 className="text-xl font-black text-slate-900 tracking-tighter mb-4">Clinical Timeline</h2>
+             {patient.messages.slice().reverse().map((msg, i) => (
+               <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${msg.type === 'IMAGE' ? 'bg-purple-50 text-purple-600' : 'bg-blue-50 text-blue-600'}`}>
+                    {msg.type === 'IMAGE' ? <Icons.Image size={24}/> : <Icons.Chat size={24}/>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] font-black text-slate-400 uppercase mb-1">{new Date(msg.timestamp).toLocaleString()}</p>
+                    <p className="text-xs font-bold text-slate-700 truncate">{msg.type === 'IMAGE' ? 'Image Attachment' : msg.content}</p>
+                  </div>
+               </div>
+             ))}
           </div>
         ) : (
-          <div className="h-full flex flex-col max-w-lg mx-auto">
-             <div className="p-2 bg-yellow-50 text-center text-[10px] text-yellow-800 border-b border-yellow-100 flex justify-between items-center">
-               <span>Group: <strong>PAJR-Dr.Smith-{patient.name.split(' ')[0]}</strong></span>
-               <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="p-1 bg-yellow-100 rounded hover:bg-yellow-200 text-yellow-800 flex items-center gap-1"
-               >
-                 <Icons.Camera size={12} /> <span className="text-[10px]">Upload</span>
-               </button>
-             </div>
-             <div className="flex-1 overflow-hidden">
-                <PatientSimulator 
-                  patient={patient}
-                  onSendMessage={(text, type) => onSendMessage(text, type)}
-                  isTyping={isProcessing}
-                />
-             </div>
+          <div className="h-full flex flex-col max-w-lg mx-auto bg-[#e5ddd5]">
+             <PatientSimulator 
+                patient={patient} 
+                onSendMessage={onSendMessage} 
+                isTyping={isProcessing} 
+             />
           </div>
         )}
       </div>
+
+      {/* Profile Sidebar */}
+      {isMenuOpen && (
+        <>
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setIsMenuOpen(false)}></div>
+          <div className="fixed top-0 right-0 h-full w-4/5 max-w-sm bg-white z-50 shadow-2xl p-10 flex flex-col rounded-l-[40px]">
+             <button onClick={() => setIsMenuOpen(false)} className="self-end p-2 text-slate-400"><Icons.Close size={32}/></button>
+             <div className="mt-10 flex flex-col items-center">
+                <div className="w-24 h-24 rounded-[32px] bg-slate-100 flex items-center justify-center text-slate-400 mb-6 font-black text-4xl">{patient.name.charAt(0)}</div>
+                <h3 className="text-2xl font-black text-slate-900">{patient.name}</h3>
+                <p className="text-xs font-bold text-slate-400 mt-2 uppercase tracking-widest">ID: {patient.id}</p>
+             </div>
+             <div className="mt-12 space-y-4">
+                <button className="w-full text-left p-5 bg-slate-50 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-600 flex items-center gap-4"><Icons.User size={20}/> Profile Settings</button>
+                <button className="w-full text-left p-5 bg-slate-50 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-600 flex items-center gap-4"><Icons.Phone size={20}/> Emergency Contacts</button>
+                <button onClick={onLogout} className="w-full text-left p-5 bg-rose-50 rounded-2xl font-black text-xs uppercase tracking-widest text-rose-600 flex items-center gap-4"><Icons.LogOut size={20}/> Logout</button>
+             </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

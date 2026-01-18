@@ -25,11 +25,11 @@ export interface VitalSign {
 export interface ClinicalInsight {
   summary: string;
   riskLevel: RiskLevel;
-  confidenceScore: number; // 0-1
-  reasoning: string[]; // "Why this was flagged"
-  themes: string[]; // "Thematic Analysis" e.g., "Glycemic Instability"
-  missingData: string[]; // "What the system cannot conclude"
-  clinicalActionSuggestion: string; // Non-prescriptive, workflow oriented
+  confidenceScore: number;
+  reasoning: string[];
+  themes: string[];
+  missingData: string[];
+  clinicalActionSuggestion: string;
 }
 
 export interface Message {
@@ -41,12 +41,10 @@ export interface Message {
   type: 'TEXT' | 'IMAGE' | 'AUDIO' | 'DOCUMENT';
 }
 
-export interface WearableData {
+export interface WearableDay {
+  day: string;
   steps: number;
   sleepHours: number;
-  heartRateAvg: number;
-  caloriesBurned: number;
-  lastSync: string;
 }
 
 export interface FoodEntry {
@@ -66,14 +64,14 @@ export interface Patient {
   id: string;
   name: string;
   age: number;
-  assignedDoctorId: string; // Connection logic
-  condition: string[]; // e.g., ["Type 2 Diabetes", "Hypertension"]
+  assignedDoctorId: string;
+  condition: string[];
   lastInteraction: string;
   riskStatus: RiskLevel;
   vitalsHistory: VitalSign[];
   messages: Message[];
   latestInsight?: ClinicalInsight;
   isFlagged: boolean;
-  wearableData?: WearableData;
-  foodLogs?: FoodEntry[];
+  wearableHistory: WearableDay[];
+  foodLogs: FoodEntry[];
 }
