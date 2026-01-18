@@ -98,7 +98,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Sync with Supabase (simplified real-time emulation)
- useEffect(() => {
+useEffect(() => {
   if (!activePatientId) return;
 
   const sub = subscribeToMessages(activePatientId, (payload) => {
@@ -122,12 +122,11 @@ const App: React.FC = () => {
     );
   });
 
- return () => {
-  sub?.unsubscribe?.();
-};
-
+  return () => {
+    sub?.unsubscribe?.();
   };
 }, [activePatientId]);
+
 
 
   const handleLogin = (role: 'PATIENT' | 'DOCTOR', phoneNumber: string) => {
